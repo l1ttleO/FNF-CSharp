@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Xml;
+using FNF_CSharp.States;
 using MonoGame.Extended.Animations.SpriteSheets;
 using MonoGame.Extended.Input.InputListeners;
 using MonoGame.Extended.Sprites;
@@ -12,17 +13,18 @@ namespace FNF_CSharp;
 
 [SuppressMessage("ReSharper", "StringLiteralTypo")] // Asset and animation names
 public class FnfGame : Game {
-    public static FnfGame ThisInstance = null!;
+    private static FnfGame _thisInstance = null!;
+    private static readonly XmlDocument Xml = new(); // Do not allocate a new XmlDocument in LoadTextureAtlas
     private readonly GraphicsDeviceManager _graphics;
-    public readonly KeyboardListener Keyboard = new();
+    private readonly KeyboardListener _keyboard = new();
+    private State _currentState;
     private SpriteFont _font = null!;
     private TimeSpan _lastUpdateTime;
     private SpriteBatch _sprites = null!;
-    public State CurrentState;
 
     public FnfGame() {
-        ThisInstance = this;
-        CurrentState = new TitleState();
+        _thisInstance = this;
+        _currentState = new TitleState();
 
         _graphics = new GraphicsDeviceManager(this);
         _graphics.PreferredBackBufferWidth = 1280;
@@ -38,7 +40,7 @@ public class FnfGame : Game {
         _sprites = new SpriteBatch(_graphics.GraphicsDevice);
 
         _font = Content.Load<SpriteFont>("Fonts/vcr");
-        CurrentState.LoadContent();
+        _currentState.LoadContent();
 
         base.LoadContent();
     }
@@ -54,18 +56,19 @@ public class FnfGame : Game {
         Window.AllowAltF4 = false;
         Window.AllowUserResizing = true;
 
-        Components.Add(new InputListenerComponent(this, Keyboard));
-        Keyboard.KeyPressed += OnKeyPress;
-        Keyboard.KeyPressed += CurrentState.OnKeyPress;
+        Components.Add(new InputListenerComponent(this, _keyboard));
+        _keyboard.KeyPressed += OnKeyPress;
+        _keyboard.KeyPressed += _currentState.OnKeyPress;
 
         base.Initialize();
     }
 
     protected override void Draw(GameTime gameTime) {
+        if (!IsActive) return;
         _graphics.GraphicsDevice.Clear(Color.Black);
 
         _sprites.Begin();
-        foreach (var (sprite, vector) in CurrentState.InWorld) {
+        foreach (var (sprite, vector) in _currentState.InWorld) {
             var scaledVector = new Vector2(vector.X * (Window.ClientBounds.Width / 1280f),
                 vector.Y * (Window.ClientBounds.Height /
                             720f)); // Scale the position because it depends on the window's bounds
@@ -80,7 +83,7 @@ public class FnfGame : Game {
             $"Update FPS:{Math.Round(1 / _lastUpdateTime.TotalSeconds, 2).ToString(CultureInfo.InvariantCulture)}",
             new Vector2(10, 25), Color.White);
         _sprites.DrawString(_font,
-            $"Allocated:{(GC.GetTotalAllocatedBytes(true) / (1024 * 1024)).ToString(CultureInfo.InvariantCulture)}MB",
+            $"Memory:{(GC.GetTotalMemory(false) / (1024 * 1024)).ToString(CultureInfo.InvariantCulture)}MB",
             new Vector2(10, 40), Color.White);
         _sprites.End();
 
@@ -88,7 +91,9 @@ public class FnfGame : Game {
     }
 
     protected override void Update(GameTime gameTime) {
-        foreach (var spriteData in CurrentState.InWorld) spriteData.Item1.Update(gameTime);
+        if (!IsActive) return;
+        foreach (var spriteData in _currentState.InWorld) spriteData.Item1.Update(gameTime);
+        _currentState.Update();
 
         _lastUpdateTime = gameTime.ElapsedGameTime; // For FPS display
 
@@ -115,25 +120,24 @@ public class FnfGame : Game {
     }
 
     public static FnfGame Get() {
-        if (ThisInstance == null) throw new ArgumentNullException(); // Should never happen
-        return ThisInstance;
+        if (_thisInstance == null) throw new ArgumentNullException(); // Should never happen
+        return _thisInstance;
     }
 
-    public static void SwitchState(State newState) {
+    public static void SwitchState(MusicBeatState newState) {
         var game = Get();
-        game.CurrentState.UnloadContent();
-        game.Keyboard.KeyPressed -= game.CurrentState.OnKeyPress;
+        game._currentState.UnloadContent();
+        game._keyboard.KeyPressed -= game._currentState.OnKeyPress;
         newState.LoadContent();
-        game.Keyboard.KeyPressed += newState.OnKeyPress;
-        game.CurrentState = newState;
+        game._keyboard.KeyPressed += newState.OnKeyPress;
+        game._currentState = newState;
     }
 
     public static Tuple<AnimatedSprite, Vector2> LoadTextureAtlas(string assetName, int x, int y) {
         var textureFile = Get().Content.Load<Texture2D>($"Images/{assetName}");
 
-        var xml = new XmlDocument();
-        xml.Load($"Content/Images/{assetName}.xml");
-        var mainNode = xml.SelectNodes("TextureAtlas");
+        Xml.Load($"Content/Images/{assetName}.xml");
+        var mainNode = Xml.SelectNodes("TextureAtlas");
         var atlasMap = new Dictionary<string, Rectangle>();
         var startAnimAt = 0;
         var endAnimAt = -1;
@@ -179,7 +183,7 @@ public class FnfGame : Game {
 #pragma warning restore CS8604
         animData.Add(Tuple.Create(lastAnim, startAnimAt, endAnimAt)); // Add the last animation
         var animFactory = new SpriteSheetAnimationFactory(new TextureAtlas(assetName, textureFile, atlasMap));
-        // Generates arrays with indices, they start from 1 and don't reset
+        // Generates arrays with indices, they start from 0 and don't reset
         foreach (var anim in animData) {
             var arrayLength = MathHelper.Clamp(anim.Item3 + 1 - anim.Item2, 1, anim.Item3);
             var array = new int[arrayLength];

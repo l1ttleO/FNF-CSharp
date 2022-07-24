@@ -74,3 +74,9 @@
 /processorParam:Quality=Best
 /build:Music/freakyMenu.ogg
 
+#begin Sounds/confirmMenu.ogg
+/importer:OggImporter
+/processor:SoundEffectProcessor
+/processorParam:Quality=Best
+/build:Sounds/confirmMenu.ogg
+
