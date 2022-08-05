@@ -9,12 +9,12 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.1.251-develop"/>
+        <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.1.303"/>
         <PackageReference Include="MonoGame.Extended.Animations" Version="3.7.0"/>
         <PackageReference Include="MonoGame.Extended.Entities" Version="3.9.0-alpha0065"/>
         <PackageReference Include="MonoGame.Extended.Input" Version="3.9.0-alpha0065"/>
         <PackageReference Include="MonoGame.Extended.Tweening" Version="3.9.0-alpha0065"/>
-        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.251-develop"/>
+        <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303"/>
     </ItemGroup>
 
 </Project>

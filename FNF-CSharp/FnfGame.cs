@@ -2,18 +2,22 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Xml;
 using FNF_CSharp.States;
+using FNF_CSharp.Utility;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+using Microsoft.Xna.Framework.Media;
 using MonoGame.Extended.Animations.SpriteSheets;
 using MonoGame.Extended.Input.InputListeners;
 using MonoGame.Extended.Sprites;
 using MonoGame.Extended.TextureAtlases;
-using AnimatedSprite = MonoGame.Extended.Animations.AnimatedSprite;
-using SpriteSheetAnimationData = MonoGame.Extended.Animations.SpriteSheets.SpriteSheetAnimationData;
 
 namespace FNF_CSharp;
 
 [SuppressMessage("ReSharper", "StringLiteralTypo")] // Asset and animation names
 public class FnfGame : Game {
     private static FnfGame _thisInstance = null!;
+    private static readonly List<Tuple<string, int, int>> EmptyAnimData = new();
     private static readonly XmlDocument Xml = new(); // Do not allocate a new XmlDocument in LoadTextureAtlas
     private readonly GraphicsDeviceManager _graphics;
     private readonly KeyboardListener _keyboard = new();
@@ -68,11 +72,11 @@ public class FnfGame : Game {
         _graphics.GraphicsDevice.Clear(Color.Black);
 
         _sprites.Begin();
-        foreach (var (sprite, vector) in _currentState.InWorld) {
-            var scaledVector = new Vector2(vector.X * (Window.ClientBounds.Width / 1280f),
-                vector.Y * (Window.ClientBounds.Height /
-                            720f)); // Scale the position because it depends on the window's bounds
-            _sprites.Draw(sprite, scaledVector);
+        foreach (var sprite in _currentState.AnimatedSprites) {
+            var scaledVector = new Vector2(sprite.Position.X * (Window.ClientBounds.Width / 1280f),
+                sprite.Position.Y * (Window.ClientBounds.Height /
+                                     720f)); // Scale the position because it depends on the window's bounds
+            _sprites.Draw(sprite.Sprite, scaledVector);
         }
 
         // Debug information
@@ -92,7 +96,7 @@ public class FnfGame : Game {
 
     protected override void Update(GameTime gameTime) {
         if (!IsActive) return;
-        foreach (var spriteData in _currentState.InWorld) spriteData.Item1.Update(gameTime);
+        foreach (var spriteData in _currentState.AnimatedSprites) spriteData.Sprite.Update(gameTime);
         _currentState.Update();
 
         _lastUpdateTime = gameTime.ElapsedGameTime; // For FPS display
@@ -133,67 +137,77 @@ public class FnfGame : Game {
         game._currentState = newState;
     }
 
-    public static Tuple<AnimatedSprite, Vector2> LoadTextureAtlas(string assetName, int x, int y) {
-        var textureFile = Get().Content.Load<Texture2D>($"Images/{assetName}");
-
+    public static PositionedAnimatedSprite BuildAnimatedSprite(string assetName, int x, int y,
+        bool autoLoadAnims = true) {
         Xml.Load($"Content/Images/{assetName}.xml");
+        var sprite = new PositionedAnimatedSprite {
+            Image = Get().Content.Load<Texture2D>($"Images/{assetName}"),
+            AnimationData = EmptyAnimData,
+            Position = new Vector2(x, y)
+        };
+        sprite.Regions = autoLoadAnims
+            ? ReadAnimationData(out sprite.AnimationData)
+            : new Dictionary<string, Rectangle>();
+        sprite.AnimationFactory
+            = new SpriteSheetAnimationFactory(new TextureAtlas(assetName, sprite.Image, sprite.Regions));
+        if (!autoLoadAnims) return sprite;
+        foreach (var anim in sprite.AnimationData) sprite.BuildAnimation(anim.Item1, anim.Item2, anim.Item3);
+        sprite.BuildSprite();
+        return sprite;
+    }
+
+    public static Dictionary<string, Rectangle> ReadAnimationData(out List<Tuple<string, int, int>> indices,
+        string loadAnimName = null!) {
         var mainNode = Xml.SelectNodes("TextureAtlas");
-        var atlasMap = new Dictionary<string, Rectangle>();
+        var lastAnim = "";
+        indices = new List<Tuple<string, int, int>>();
         var startAnimAt = 0;
         var endAnimAt = -1;
-        var lastAnim = "";
-        var animData =
-            new List<Tuple<string, int, int>>(); // Animation name, animation start index, animation end index
-
+        var atlasMap = new Dictionary<string, Rectangle>();
 #pragma warning disable CS8602
 #pragma warning disable CS8604
-        foreach (XmlNode node in mainNode) { // Iterate over every node in TextureAtlas
+        foreach (XmlNode node in mainNode) {
+            // Iterate over every node in TextureAtlas
             var subTextures = node.SelectNodes("SubTexture");
-            foreach (XmlNode subTexture in subTextures) { // Iterate over every SubTexture found in TextureAtlas
+            foreach (XmlNode subTexture in subTextures) {
+                // Iterate over every SubTexture found in TextureAtlas
                 var attr = subTexture.Attributes;
                 var name = attr.GetNamedItem("name").Value;
+                var skipAnim = loadAnimName != null && loadAnimName != name[..^4];
                 if (lastAnim == "") lastAnim = name[..^4]; // Animation name without frame counter
-                if (lastAnim != name[..^4]) { // We are at the next animation now
-                    animData.Add(Tuple.Create(lastAnim!, startAnimAt, endAnimAt));
+                if (lastAnim != name[..^4]) {
+                    // We are at the next animation now
+                    if (!skipAnim) indices.Add(Tuple.Create(lastAnim!, startAnimAt, endAnimAt));
                     startAnimAt = endAnimAt + 1;
                 }
 
-                // Uses frame positions and boundaries to avoid "bouncing". Algorithm from flixel.graphics.frames.FlxAtlasFrames#fromSparrow
-                Rectangle size;
-                if (attr.GetNamedItem("frameX") != null)
-                    size = new Rectangle(int.Parse(attr.GetNamedItem("frameX").Value),
-                        int.Parse(attr.GetNamedItem("frameY").Value),
-                        int.Parse(attr.GetNamedItem("frameWidth").Value),
-                        int.Parse(attr.GetNamedItem("frameHeight").Value));
-                else
-                    size = new Rectangle(0, 0,
-                        int.Parse(attr.GetNamedItem("width").Value),
-                        int.Parse(attr.GetNamedItem("height").Value));
+                if (!skipAnim) {
+                    // Uses frame positions and boundaries to avoid "bouncing". Algorithm from flixel.graphics.frames.FlxAtlasFrames#fromSparrow
+                    Rectangle size;
+                    if (attr.GetNamedItem("frameX") != null)
+                        size = new Rectangle(int.Parse(attr.GetNamedItem("frameX").Value),
+                            int.Parse(attr.GetNamedItem("frameY").Value),
+                            int.Parse(attr.GetNamedItem("frameWidth").Value),
+                            int.Parse(attr.GetNamedItem("frameHeight").Value));
+                    else
+                        size = new Rectangle(0, 0,
+                            int.Parse(attr.GetNamedItem("width").Value),
+                            int.Parse(attr.GetNamedItem("height").Value));
 
-                atlasMap.Add(name, new Rectangle(int.Parse(attr.GetNamedItem("x").Value) + size.Left - 2,
-                    int.Parse(attr.GetNamedItem("y").Value) + size.Top + 2, // Two-pixel offset to prevent bleeding
-                    size.Width,
-                    size.Height
-                ));
+                    atlasMap.Add(name, new Rectangle(int.Parse(attr.GetNamedItem("x").Value) + size.Left - 2,
+                        int.Parse(attr.GetNamedItem("y").Value) + size.Top + 2, // Two-pixel offset to prevent bleeding
+                        size.Width,
+                        size.Height
+                    ));
+                }
+
                 lastAnim = name[..^4];
                 endAnimAt++;
             }
         }
 #pragma warning restore CS8602
 #pragma warning restore CS8604
-        animData.Add(Tuple.Create(lastAnim, startAnimAt, endAnimAt)); // Add the last animation
-        var animFactory = new SpriteSheetAnimationFactory(new TextureAtlas(assetName, textureFile, atlasMap));
-        // Generates arrays with indices, they start from 0 and don't reset
-        foreach (var anim in animData) {
-            var arrayLength = MathHelper.Clamp(anim.Item3 + 1 - anim.Item2, 1, anim.Item3);
-            var array = new int[arrayLength];
-            var curIndices = anim.Item2;
-            for (var i = 0; i < array.Length; ++i) array[i] = curIndices++;
-            animFactory.Add(anim.Item1,
-                new SpriteSheetAnimationData(array,
-                    1 / 24f)); // Most animations run at 24FPS, TODO: support varying FPS
-        }
-
-        return Tuple.Create(new AnimatedSprite(animFactory), new Vector2(x, y));
+        indices.Add(Tuple.Create(lastAnim, startAnimAt, endAnimAt)!); // Add the last animation
+        return atlasMap;
     }
 }

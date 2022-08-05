@@ -1,11 +1,13 @@
-using MonoGame.Extended.Animations;
+using FNF_CSharp.Utility;
 using MonoGame.Extended.Input.InputListeners;
 
 namespace FNF_CSharp.States;
 
 public abstract class State {
+    public readonly List<PositionedAnimatedSprite>
+        AnimatedSprites = new(); // To draw and update animated sprites, add them here
+
     protected readonly FnfGame Game = FnfGame.Get();
-    public readonly List<Tuple<AnimatedSprite, Vector2>> InWorld = new(); // To draw and update sprites, add them here
 
     public abstract void LoadContent();
     public abstract void Update();

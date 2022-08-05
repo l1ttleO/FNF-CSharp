@@ -79,4 +79,3 @@
 /processor:SoundEffectProcessor
 /processorParam:Quality=Best
 /build:Sounds/confirmMenu.ogg
-

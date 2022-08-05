@@ -1,6 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using FNF_CSharp.Utility;
-using MonoGame.Extended.Animations;
+using Microsoft.Xna.Framework.Audio;
+using Microsoft.Xna.Framework.Input;
+using Microsoft.Xna.Framework.Media;
 using MonoGame.Extended.Input.InputListeners;
 
 namespace FNF_CSharp.States;
@@ -8,38 +10,49 @@ namespace FNF_CSharp.States;
 [SuppressMessage("ReSharper", "StringLiteralTypo")] // Asset and animation names
 public class TitleState : MusicBeatState {
     private SoundEffectInstance _confirmSfx = null!;
-    private Tuple<AnimatedSprite, Vector2> _logo = null!;
-    private Tuple<AnimatedSprite, Vector2> _pressEnter = null!;
+    private bool _danceLeft;
+    private PositionedAnimatedSprite _girlfriend;
+    private PositionedAnimatedSprite _logo;
+    private PositionedAnimatedSprite _pressEnter;
 
     public override void LoadContent() {
         var mainMusic = Game.Content.Load<Song>("Music/freakyMenu");
         MediaPlayer.IsRepeating = true;
         MediaPlayer.Play(mainMusic);
-        Conductor.ChangeBpm(102);
+        Conductor.Bpm = 102;
 
         // Coordinates are hand-picked, values from base FNF don't work :(
-        var girlfriend = FnfGame.LoadTextureAtlas("gfDanceTitle", 900, 350);
-        InWorld.Add(girlfriend);
+        _girlfriend = FnfGame.BuildAnimatedSprite("gfDanceTitle", 900, 350, false);
+        _girlfriend.AddAnimation("danceLeft", "gfDance",
+            new[] { 30, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 });
+        _girlfriend.AddAnimation("danceRight", "gfDance",
+            new[] { 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29 });
+        _girlfriend.BuildSprite();
+        AnimatedSprites.Add(_girlfriend);
+
+        _logo = FnfGame.BuildAnimatedSprite("logoBumpin", 350, 235, false);
+        _logo.AddAnimation("bump", "logo bumpin");
+        _logo.BuildSprite();
+        AnimatedSprites.Add(_logo);
+
+        _pressEnter = FnfGame.BuildAnimatedSprite("titleEnter", 850, 670);
+        AnimatedSprites.Add(_pressEnter);
         // Mistyping an animation name will throw a NullReferenceException!
-        girlfriend.Item1.Play("gfDance").IsLooping = true;
-
-        _logo = FnfGame.LoadTextureAtlas("logoBumpin", 350, 235);
-        InWorld.Add(_logo);
-
-        _pressEnter = FnfGame.LoadTextureAtlas("titleEnter", 850, 670);
-        InWorld.Add(_pressEnter);
-        _pressEnter.Item1.Play("ENTER IDLE").IsLooping = true;
+        _pressEnter.Sprite.Play("ENTER IDLE").IsLooping = true;
 
         _confirmSfx =
             Game.Content.Load<SoundEffect>("Sounds/confirmMenu").CreateInstance(); // Load now to avoid a freeze
     }
 
     protected override void OnBeatHit() {
-        _logo.Item1.Play("logo bumpin");
+        _logo.Sprite.Play("bump");
+        _danceLeft = !_danceLeft;
+        _girlfriend.Sprite.Play(_danceLeft ? "danceLeft" : "danceRight");
     }
 
     public override void Update() {
-        Conductor.PlayPosition = (float)MediaPlayer.PlayPosition.TotalMilliseconds;
+        if (MediaPlayer.State == MediaState.Playing)
+            Conductor.PlayPosition = (float)MediaPlayer.PlayPosition.TotalMilliseconds;
         base.Update();
     }
 
@@ -52,7 +65,7 @@ public class TitleState : MusicBeatState {
     public override void OnKeyPress(object? sender, KeyboardEventArgs args) {
         // TODO: MainMenuState
         if (args.Key != Keys.Enter && args.Key != Keys.Space) return;
-        _pressEnter.Item1.Play("ENTER PRESSED").IsLooping = true;
+        _pressEnter.Sprite.Play("ENTER PRESSED").IsLooping = true;
         _confirmSfx.Play();
     }
 }
